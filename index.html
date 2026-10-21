@@ -11,6 +11,9 @@
 @media(max-width:850px){.layout{grid-template-columns:1fr;padding:9px}.sidebar{position:static;overflow:auto}.nav{flex-direction:row;width:max-content;min-width:100%}.nav button{white-space:nowrap}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.grid3{grid-template-columns:repeat(2,minmax(0,1fr))}.app-header{position:static}.grid{grid-template-columns:1fr}}
 @media(max-width:460px){.stats{gap:7px}.stat{padding:10px}.stat strong{font-size:18px}.card{padding:12px}.grid3{grid-template-columns:1fr 1fr}.cart-line{grid-template-columns:minmax(0,1fr) 55px 72px 30px}.app-header h1{font-size:18px}}
 @media print{.app-header,.sidebar,.no-print,button{display:none!important}.layout{display:block;padding:0}.panel{display:none!important}.panel.active{display:block!important}.card{border:0}.table-wrap{overflow:visible}table{min-width:0}body{background:white}}
+
+.camera-box.scan-product-overlay{position:fixed!important;z-index:99999!important;left:12px!important;right:12px!important;bottom:12px!important;max-width:620px;margin:0 auto!important;background:var(--card,#fff);box-shadow:0 8px 32px rgba(0,0,0,.35);padding:12px;border-radius:14px}
+.camera-box.scan-product-overlay video{width:100%;max-height:48vh;object-fit:contain;background:#111;border-radius:10px}
 </style>
 </head>
 <body>
@@ -150,8 +153,11 @@ async function startCamera(mode="sale"){
     window.cameraScanMode=mode;
     const cameraArea=document.getElementById("cameraArea");
     if(mode==="product"){
-      document.getElementById("productFormCard").appendChild(cameraArea);
+      // Keep the scanner visible above the product form on mobile screens.
+      document.body.appendChild(cameraArea);
+      cameraArea.classList.add("scan-product-overlay");
     }else{
+      cameraArea.classList.remove("scan-product-overlay");
       document.querySelector("#panel-sales .card").appendChild(cameraArea);
     }
     cameraArea.classList.remove("hidden");
@@ -229,7 +235,7 @@ function handleCameraCode(value){
     document.getElementById("cameraStatus").textContent="წაკითხულია: "+val;
   }
 }
-function stopCamera(){if(scanLoop)cancelAnimationFrame(scanLoop);scanLoop=null;if(zxingControls){try{zxingControls.stop()}catch(e){}zxingControls=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const v=document.getElementById("video");if(v)v.srcObject=null;const area=document.getElementById("cameraArea");if(area)area.classList.add("hidden")}
+function stopCamera(){if(scanLoop)cancelAnimationFrame(scanLoop);scanLoop=null;if(zxingControls){try{zxingControls.stop()}catch(e){}zxingControls=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const v=document.getElementById("video");if(v)v.srcObject=null;const area=document.getElementById("cameraArea");if(area){area.classList.add("hidden");area.classList.remove("scan-product-overlay")}}
 renderAll();
 </script>
 </body>
