@@ -74,11 +74,12 @@
 <div class="card"><h2>მონაცემების სტატუსი</h2><p id="backupStatus"></p><button class="danger" onclick="resetAll()">ყველა მონაცემის წაშლა</button><p class="smalltext muted" style="margin-top:8px">წაშლა შეუქცევადია, თუ სარეზერვო ასლი არ გაქვს.</p></div>
 </section>
 </main></div><div id="toast" class="toast hidden"></div>
+<script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
 <script>
 "use strict";
 const KEY="shopProgramKa_v1";
 const blankData=()=>({products:[],customers:[],sales:[],expenses:[],purchases:[],debtPayments:[]});
-let data=loadData(),cart=[],stream=null,scanLoop=null,lastScan="",lastScanAt=0;
+let data=loadData(),cart=[],stream=null,scanLoop=null,lastScan="",lastScanAt=0,zxingControls=null;
 function loadData(){try{const x=JSON.parse(localStorage.getItem(KEY));return x&&typeof x==="object"?{...blankData(),...x}:blankData()}catch(e){return blankData()}}
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(data));renderAll()}catch(e){toast("მეხსიერება ვერ შეინახა. ჩამოტვირთე სარეზერვო ასლი.");}}
 function money(n){return "₾"+(Number(n)||0).toLocaleString("ka-GE",{minimumFractionDigits:2,maximumFractionDigits:2})}
@@ -139,8 +140,96 @@ function exportBackup(){const blob=new Blob([JSON.stringify({app:"მაღა�
 function importBackup(e){const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const obj=JSON.parse(reader.result),d=obj.data||obj;if(!d||!Array.isArray(d.products)||!Array.isArray(d.sales))throw new Error("ფაილის ფორმატი არასწორია");if(!confirm("არსებული მონაცემები ჩანაცვლდება. გაგრძელება?"))return;data={...blankData(),...d};cart=[];persist();toast("მონაცემები აღდგენილია")}catch(err){toast("ფაილის წაკითხვა ვერ მოხერხდა. აირჩიე სწორი JSON ასლი.")}finally{e.target.value=""}};reader.readAsText(file)}
 function renderBackupStatus(){document.getElementById("backupStatus").textContent=`პროდუქტი: ${data.products.length} • კლიენტი: ${data.customers.length} • გაყიდვა: ${data.sales.length} • ხარჯი: ${data.expenses.length} • მიღება: ${data.purchases.length}. ბოლო შენახვა: ავტომატურად, ამ ბრაუზერში.`}
 function resetAll(){if(!confirm("დარწმუნებული ხარ? ყველა პროდუქტი, გაყიდვა, კლიენტი და ანგარიში წაიშლება."))return;if(!confirm("ბოლო გაფრთხილება: წაშლა შეუქცევადია სარეზერვო ასლის გარეშე. წავშალო?"))return;data=blankData();cart=[];persist();toast("მონაცემები წაიშალა")}
-async function startCamera(){if(!("BarcodeDetector" in window)){toast("ამ ბრაუზერს კამერით შტრიხკოდის ამოცნობა არ აქვს. გამოიყენე USB/Bluetooth სკანერი ან კოდი ჩაწერე.");return}if(!navigator.mediaDevices?.getUserMedia){toast("კამერა მოითხოვს HTTPS-ს ან localhost-ს.");return}try{window.cameraScanMode=mode;const cameraArea=document.getElementById("cameraArea");if(mode==="product"){document.getElementById("productFormCard").appendChild(cameraArea)}else{document.querySelector("#panel-sales .card").appendChild(cameraArea)}cameraArea.classList.remove("hidden");document.getElementById("cameraStatus").textContent="კამერის ჩართვა...";stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false});const video=document.getElementById("video");video.srcObject=stream;await video.play();const detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","itf","qr_code"]});document.getElementById("cameraStatus").textContent="მოათავსე შტრიხკოდი კამერის წინ.";const scan=async()=>{if(!stream)return;try{const codes=await detector.detect(video);if(codes.length){const val=codes[0].rawValue,now=Date.now();if(val!==lastScan||now-lastScanAt>1800){lastScan=val;lastScanAt=now;if(window.cameraScanMode==="product"){document.getElementById("pBarcode").value=val;document.getElementById("cameraStatus").textContent="კოდი ჩასმულია პროდუქტში: "+val;stopCamera();document.getElementById("pBarcode").focus();toast("შტრიხკოდი პროდუქტის ველში ჩაიწერა.")}else{document.getElementById("saleSearch").value=val;addBySearch();document.getElementById("cameraStatus").textContent="წაკითხულია: "+val}}}}catch(e){}scanLoop=requestAnimationFrame(scan)};scan()}catch(e){document.getElementById("cameraStatus").textContent="კამერა ვერ ჩაირთო. შეამოწმე ნებართვა და HTTPS.";toast("კამერის ჩართვა ვერ მოხერხდა. მიეცი ბრაუზერს კამერის ნებართვა.")}}
-function stopCamera(){if(scanLoop)cancelAnimationFrame(scanLoop);scanLoop=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const v=document.getElementById("video");if(v)v.srcObject=null;const area=document.getElementById("cameraArea");if(area)area.classList.add("hidden")}
+async function startCamera(mode="sale"){
+  if(!navigator.mediaDevices?.getUserMedia){
+    toast("კამერისთვის გახსენი GitHub Pages-ის HTTPS ბმული და დაუშვი კამერის გამოყენება.");
+    return;
+  }
+  try{
+    stopCamera();
+    window.cameraScanMode=mode;
+    const cameraArea=document.getElementById("cameraArea");
+    if(mode==="product"){
+      document.getElementById("productFormCard").appendChild(cameraArea);
+    }else{
+      document.querySelector("#panel-sales .card").appendChild(cameraArea);
+    }
+    cameraArea.classList.remove("hidden");
+    document.getElementById("cameraStatus").textContent="კამერის ჩართვა...";
+    const video=document.getElementById("video");
+
+    // Prefer native BarcodeDetector when available.
+    if("BarcodeDetector" in window){
+      stream=await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{ideal:"environment"}},
+        audio:false
+      });
+      video.srcObject=stream;
+      await video.play();
+      let detector;
+      try{
+        detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","itf","qr_code"]});
+      }catch(e){
+        detector=new BarcodeDetector();
+      }
+      document.getElementById("cameraStatus").textContent="მოათავსე შტრიხკოდი კამერის წინ.";
+      const scan=async()=>{
+        if(!stream)return;
+        try{
+          const codes=await detector.detect(video);
+          if(codes.length) handleCameraCode(codes[0].rawValue);
+        }catch(e){}
+        if(stream) scanLoop=requestAnimationFrame(scan);
+      };
+      scan();
+      return;
+    }
+
+    // Fallback decoder for browsers without native BarcodeDetector.
+    if(window.ZXingBrowser?.BrowserMultiFormatReader){
+      document.getElementById("cameraStatus").textContent="იტვირთება შტრიხკოდის წამკითხველი...";
+      const reader=new ZXingBrowser.BrowserMultiFormatReader();
+      zxingControls=await reader.decodeFromVideoDevice(
+        undefined,
+        video,
+        (result,err)=>{
+          if(result) handleCameraCode(result.getText());
+          else if(err && err.name!=="NotFoundException"){
+            document.getElementById("cameraStatus").textContent="შტრიხკოდი ვერ იკითხება — მიუახლოვე კამერას და გაასწორე განათება.";
+          }
+        }
+      );
+      document.getElementById("cameraStatus").textContent="მოათავსე შტრიხკოდი კამერის წინ.";
+      return;
+    }
+
+    throw new Error("Barcode decoder library did not load");
+  }catch(e){
+    stopCamera();
+    const status=document.getElementById("cameraStatus");
+    if(status)status.textContent="კამერა ვერ ჩაირთო. შეამოწმე ნებართვა და ინტერნეტკავშირი.";
+    toast("კამერის ჩართვა ვერ მოხერხდა. დაუშვი კამერის ნებართვა და გადაამოწმე ინტერნეტი.");
+  }
+}
+function handleCameraCode(value){
+  const val=String(value||"").trim();
+  if(!val)return;
+  const now=Date.now();
+  if(val===lastScan && now-lastScanAt<1800)return;
+  lastScan=val;lastScanAt=now;
+  if(window.cameraScanMode==="product"){
+    document.getElementById("pBarcode").value=val;
+    document.getElementById("cameraStatus").textContent="კოდი ჩასმულია პროდუქტში: "+val;
+    stopCamera();
+    document.getElementById("pBarcode").focus();
+    toast("შტრიხკოდი პროდუქტის ველში ჩაიწერა.");
+  }else{
+    document.getElementById("saleSearch").value=val;
+    addBySearch();
+    document.getElementById("cameraStatus").textContent="წაკითხულია: "+val;
+  }
+}
+function stopCamera(){if(scanLoop)cancelAnimationFrame(scanLoop);scanLoop=null;if(zxingControls){try{zxingControls.stop()}catch(e){}zxingControls=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const v=document.getElementById("video");if(v)v.srcObject=null;const area=document.getElementById("cameraArea");if(area)area.classList.add("hidden")}
 renderAll();
 </script>
 </body>
